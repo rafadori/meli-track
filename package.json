@@ -1,0 +1,31 @@
+{
+  "name": "meli-track",
+  "version": "1.0.0",
+  "description": "Receber alertas quando houver mudanças no status ou logística de uma compra Mercado Livre",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rafadori/meli-track.git"
+  },
+  "keywords": [
+    "meli",
+    "mercadolivre",
+    "status",
+    "order",
+    "track",
+    "order-track"
+  ],
+  "author": "Rafael Nascimento Ramos",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/rafadori/meli-track/issues"
+  },
+  "homepage": "https://github.com/rafadori/meli-track#readme",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
