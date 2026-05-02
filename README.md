@@ -1,103 +1,57 @@
-# 🔔 Notificação de Status de Compra via Telegram (Projeto Pessoal)
+# ml-telegram-tracker
 
-> Este documento descreve um **mini-sistema pessoal** para receber alertas no Telegram (para você e, no máximo, um familiar) quando houver **mudanças no status/logística de uma compra** (ex.: pagamento aprovado, postado, chegou no CD, saiu para entrega, entregue).
-
----
-
-# 🎯 Objetivo
-
-Receber no celular **cada etapa logística** (para ansiedade edition 😄) de compras do Mercado Livre via mensagens do Telegram.
-
-Sem multiusuário, sem SaaS.
+Bot pessoal que manda mensagem no Telegram cada vez que o status de um pedido do Mercado Livre muda. Nada mais, nada menos.
 
 ---
 
-# ✅ Escopo (MVP)
+## Por que isso existe
 
-## Inclui
+Eu odeio ficar abrindo o app do ML pra ver se o pedido saiu pro CD ou não. Esse projeto resolve isso mandando uma mensagem direto no celular quando qualquer coisa mudar no rastreio — pagamento aprovado, postado, em transferência, saiu para entrega, entregue.
 
-- Criar um bot no Telegram
-- Guardar `BOT_TOKEN` e `CHAT_ID`
-- Enviar mensagem de teste
-- Capturar atualizações do pedido/envio (via webhook ou polling)
-- Consultar detalhes do envio (shipment) e montar a mensagem
-- Enviar alerta para você (e opcionalmente um familiar)
-
-## Não inclui
-
-- Monitoramento de preços
-- Gestão de usuários
-- Canal público
-- WhatsApp
-- Painel/dashboard
+Uso pessoal. Não tem multi-usuário, não tem painel, não tem SaaS. No máximo você e um familiar recebendo no mesmo bot.
 
 ---
 
-# 🧠 Como o Telegram encaixa na arquitetura
+## Como funciona
 
-```text
-Mercado Livre (evento de pedido/envio)
-   ↓
-Seu receiver (webhook ou job)
-   ↓
-Consulta detalhes (order/shipment/history)
-   ↓
-Formata mensagem
-   ↓
-Telegram Bot API (sendMessage)
-   ↓
-Você recebe no celular 🔔
+```
+ML emite evento (order/shipment)
+  → receiver (webhook ou polling)
+    → busca detalhes do envio via API
+      → monta mensagem
+        → Telegram Bot API (sendMessage)
+          → notificação no celular
 ```
 
 ---
 
-# 🧩 Componentes
+## O que tem no MVP
 
-## 1) Bot do Telegram
+- Criar o bot via BotFather e guardar `BOT_TOKEN` + `CHAT_ID`
+- Receber eventos do ML (webhook preferred, polling como fallback)
+- Consultar estado atual do envio
+- Enviar alerta quando o status mudar
+- Deduplicação básica pra não spammar o mesmo status duas vezes
 
-Você cria um bot no Telegram via BotFather e obtém:
+## O que não tem
 
-- `BOT_TOKEN`
-
----
-
-## 2) Destinos (Chat IDs)
-
-Você precisa descobrir o `CHAT_ID` do destino:
-
-- Seu chat privado com o bot
-- (Opcional) chat do seu familiar
-
-Depois, você salva isso em env vars ou config.
+- Monitoramento de preço
+- WhatsApp
+- Qualquer coisa que precise de servidor público permanente se você optar por polling
 
 ---
 
-## 3) Receiver de eventos (Mercado Livre)
+## Estratégia de eventos
 
-Você tem duas estratégias possíveis:
+**Webhook** — o ML notifica sua URL quando algo muda. Mais eficiente, mais próximo de tempo real. Exige endpoint público (ngrok pra dev, VPS/serverless pra produção).
 
-### A) Webhook (preferido)
-
-- Receber notificações de eventos de `orders`/`shipments`
-- Ao receber, buscar o estado atual do envio e mandar mensagem
-
-### B) Polling (fallback)
-
-- Rodar um job a cada X minutos
-- Comparar `status/substatus` atual vs último salvo
-- Se mudou, notificar
-
-> Para uso pessoal, polling com intervalo razoável pode ser suficiente; webhook é mais “tempo real” e eficiente.
+**Polling** — job rodando a cada X minutos comparando o status atual com o último salvo. Suficiente pra uso pessoal. Mais fácil de colocar pra rodar num Raspberry Pi ou num cron qualquer.
 
 ---
 
-## 4) Banco mínimo (para dedupe)
+## Banco de dados (mínimo)
 
-Mesmo sendo pessoal, você vai querer evitar notificação repetida.
-
-Estrutura mínima sugerida:
-
-### tracked_shipments
+Só pra guardar o último estado e evitar notificação repetida:
 
 | campo           | tipo     |
 | --------------- | -------- |
@@ -108,73 +62,63 @@ Estrutura mínima sugerida:
 | last_substatus  | string   |
 | updated_at      | datetime |
 
+SQLite resolve bem pra uso pessoal.
+
 ---
 
-# 📨 Formato das mensagens (status/logística)
+## Formato das mensagens
 
-## Mensagem curta (boa)
-
-```
-📦 Pedido atualizado
-
-Pedido: #123
-Status: Em transferência
-Local: CD Cajamar
-Hora: 14:02
-
-🔎 Rastreio: https://...
-```
-
-## Mensagem “ansioso mode” (detalhada)
+**Versão enxuta:**
 
 ```
-📦 Linha do tempo (última atualização)
+📦 Pedido #123 atualizado
+Status: Em transferência — CD Cajamar
+14:02 · Rastreio: https://...
+```
 
-Pedido: #123
-🚚 Evento: Chegou no centro de distribuição
-📍 Local: CD Betim
-🕒 2026-02-11 14:02
+**Versão detalhada (modo ansioso):**
 
+```
+📦 Pedido #123
+Evento: Chegou no centro de distribuição
+Local: CD Betim
+Hora: 2026-02-11 14:02
 Próximo provável: Em transferência
 ```
 
 ---
 
-# 🧠 Regras de “anti-spam” (recomendado)
+## Anti-spam
 
-Como eventos podem repetir, use:
+A API do ML pode mandar o mesmo evento mais de uma vez. Para não encher o Telegram de mensagem repetida:
 
-- Deduplicação por `(shipment_id + timestamp + status + substatus)`
-- Cooldown (ex.: não enviar o mesmo status em menos de 5 min)
-- Enviar apenas quando a linha do tempo tiver um novo evento
+- Hash de `(shipment_id + timestamp + status + substatus)` pra deduplicar
+- Cooldown de 5 minutos por status
+- Só notifica se aparecer um evento novo na linha do tempo
 
 ---
 
-# 🧪 Checklist do MVP
+## Checklist MVP
 
 - [ ] Criar bot no BotFather
-- [ ] Pegar `BOT_TOKEN`
-- [ ] Descobrir `CHAT_ID`
-- [ ] Implementar `sendTelegram(message)`
-- [ ] Fazer “hello world” no Telegram
+- [ ] Salvar `BOT_TOKEN` e `CHAT_ID` em variáveis de ambiente
+- [ ] Implementar `sendTelegram(message)` e testar com um hello world
 - [ ] Conectar origem de eventos (webhook ou polling)
-- [ ] Salvar último status por shipment
-- [ ] Enviar alerta quando mudar
-- [ ] Deduplicação básica
+- [ ] Persistir último status por shipment
+- [ ] Enviar alerta na mudança
+- [ ] Deduplicação básica funcionando
 
 ---
 
-# 🧭 Evoluções possíveis
+## Possíveis evoluções
 
-- [ ] Incluir link direto do pedido/envio
-- [ ] Enviar mensagem agrupada (ex.: 3 eventos em 1 msg)
-- [ ] Botões inline ("Abrir rastreio")
-- [ ] Modo silencioso (ex.: não notificar madrugada)
+- Botões inline no Telegram ("Abrir rastreio")
+- Agrupamento de eventos próximos numa mensagem só
+- Modo silencioso por horário (sem notificação de madrugada)
+- Link direto pro pedido/envio
 
 ---
 
-# 📝 Status
+## Status
 
-🟡 Planejamento
-
-Documento focado em um setup pessoal e simples — ideal para começar rápido e evoluir depois.
+Planejamento — documento serve como spec do MVP. A ideia é começar simples e evoluir conforme a necessidade aparecer.
